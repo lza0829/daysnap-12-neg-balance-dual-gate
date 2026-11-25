@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.db import 夹具目录, 连接
-from app.services import 回放, 抽取, 目录, 装载
+from app.services import 回放, 抽取, 目录, 装载, 负余额闸
 
 路由 = APIRouter(prefix="/api")
 
@@ -51,7 +51,7 @@ def 列账户():
 
 
 @路由.get("/流水")
-def 列流水(营业日: str = "", 账户键: str = ""):
+def 列流水(营业日: str = "", 账户键: str = "", 流水号: str = ""):
     conn = 连接()
     try:
         sql = "SELECT * FROM 变动流水 WHERE 1=1"
@@ -62,6 +62,9 @@ def 列流水(营业日: str = "", 账户键: str = ""):
         if 账户键:
             sql += " AND 账户键=?"
             args.append(账户键)
+        if 流水号:
+            sql += " AND 流水号=?"
+            args.append(流水号)
         sql += " ORDER BY 营业日 DESC, 发生时 DESC LIMIT 300"
         return [dict(r) for r in conn.execute(sql, args)]
     finally:
@@ -179,9 +182,10 @@ class 夹具请求(BaseModel):
     名: str
 
 
-@路由.post("/装载夹具/{名}")
-def 装载夹具路径(名: str):
-    return _装载夹具文件(名)
+@路由.post("/装载夹具/{ming}")
+def 装载夹具路径(ming: str):
+    # 路径参数须用 ASCII 标识符：Starlette 不编译 {名} 这类中文参数（会致整路由 404）。
+    return _装载夹具文件(ming)
 
 
 @路由.post("/装载夹具")
@@ -214,6 +218,65 @@ def 执行回放(体: 营业日请求):
         raise HTTPException(400, str(e)) from e
 
 
+class 解冻请求(BaseModel):
+    流水号: str
+    批次编号: str = ""
+
+
+class 闸开关请求(BaseModel):
+    启用: bool
+
+
+@路由.get("/负余额闸/核证")
+def 闸核证(流水号: str = "", 账户键: str = "", 营业日: str = ""):
+    """核证四要素：拟余额、路径、冻结有无、valid（另附正式流水/冻结行命中情况）。"""
+    conn = 连接()
+    try:
+        try:
+            return 负余额闸.核证(conn, 流水号=流水号, 账户键=账户键, 营业日=营业日)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+    finally:
+        conn.close()
+
+
+@路由.get("/负余额闸/冻结")
+def 闸冻结(账户键: str = "", 营业日: str = "", 状态: str = ""):
+    conn = 连接()
+    try:
+        return 负余额闸.列冻结(conn, 账户键=账户键, 营业日=营业日, 状态=状态)
+    finally:
+        conn.close()
+
+
+@路由.get("/负余额闸/决策")
+def 闸决策(流水号: str = "", 账户键: str = "", 营业日: str = ""):
+    conn = 连接()
+    try:
+        return 负余额闸.列决策(conn, 流水号=流水号, 账户键=账户键, 营业日=营业日)
+    finally:
+        conn.close()
+
+
+@路由.post("/负余额闸/解冻")
+def 闸解冻(体: 解冻请求):
+    try:
+        return 负余额闸.解冻(体.流水号, 体.批次编号)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@路由.post("/负余额闸/开关")
+def 闸开关(体: 闸开关请求):
+    conn = 连接()
+    try:
+        负余额闸.设闸(conn, 体.启用)
+        conn.commit()
+        return {"键": 负余额闸.闸台参键, "值": "开" if 体.启用 else "关", "启用": 体.启用}
+    finally:
+        conn.close()
+
+
 @路由.post("/重置业务库")
 def 重置():
     """开发冒烟用：清业务表并保留账户与台参。"""
@@ -229,6 +292,8 @@ def 重置():
             "跳变记录",
             "旁置簿",
             "装载批次",
+            "冻结流水",
+            "负余额闸决策",
         ):
             conn.execute(f"DELETE FROM {t}")
         conn.commit()

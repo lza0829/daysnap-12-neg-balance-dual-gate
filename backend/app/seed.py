@@ -89,6 +89,34 @@ CREATE TABLE IF NOT EXISTS 装载批次 (
   时刻 TEXT NOT NULL,
   报告 TEXT NOT NULL DEFAULT '{}'
 );
+CREATE TABLE IF NOT EXISTS 冻结流水 (
+  流水号 TEXT PRIMARY KEY,
+  账户键 TEXT NOT NULL,
+  营业日 TEXT NOT NULL,
+  发生时 TEXT NOT NULL,
+  变动额 INTEGER NOT NULL,
+  摘要 TEXT NOT NULL DEFAULT '',
+  批次编号 TEXT NOT NULL DEFAULT '',
+  冻结原因 TEXT NOT NULL DEFAULT '拟负冻结',
+  拟余额 INTEGER NOT NULL,
+  状态 TEXT NOT NULL DEFAULT '冻结中',
+  冻结时刻 TEXT NOT NULL,
+  解冻时刻 TEXT NOT NULL DEFAULT '',
+  解冻批次 TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS 负余额闸决策 (
+  编号 INTEGER PRIMARY KEY AUTOINCREMENT,
+  路径 TEXT NOT NULL,
+  批次编号 TEXT NOT NULL DEFAULT '',
+  流水号 TEXT NOT NULL DEFAULT '',
+  账户键 TEXT NOT NULL,
+  营业日 TEXT NOT NULL,
+  拟余额 INTEGER NOT NULL,
+  冻结有无 INTEGER NOT NULL DEFAULT 0,
+  valid INTEGER NOT NULL,
+  原因 TEXT NOT NULL DEFAULT '',
+  时刻 TEXT NOT NULL
+);
 """
 
 空桩模块 = [
@@ -124,16 +152,22 @@ def 此刻() -> str:
 def 初始化库() -> None:
     conn = 连接()
     conn.executescript(建表)
+    默认台参 = {
+        "站名": "日镜账",
+        "骨架": "日终余额抽取→周期快照落行→变动流水回放核对→断档跳变检出→快照与回放差额清单",
+        "跳变阈值分": "0",
+        "断档处置": "记断档并继续",
+        "缺前日策略": "以零为开端",
+        "重复抽取": "盖写同日快照",
+        "禁止负余额": "关",
+    }
     if conn.execute("SELECT COUNT(*) AS c FROM 台参").fetchone()["c"] == 0:
-        for k, v in {
-            "站名": "日镜账",
-            "骨架": "日终余额抽取→周期快照落行→变动流水回放核对→断档跳变检出→快照与回放差额清单",
-            "跳变阈值分": "0",
-            "断档处置": "记断档并继续",
-            "缺前日策略": "以零为开端",
-            "重复抽取": "盖写同日快照",
-        }.items():
+        for k, v in 默认台参.items():
             conn.execute("INSERT INTO 台参(键, 值) VALUES (?, ?)", (k, v))
+    else:
+        # 旧库升级：仅补缺，不覆盖既有取值。
+        for k, v in 默认台参.items():
+            conn.execute("INSERT OR IGNORE INTO 台参(键, 值) VALUES (?, ?)", (k, v))
     if conn.execute("SELECT COUNT(*) AS c FROM 账户").fetchone()["c"] == 0:
         for 键, 名, 日 in [
             ("户甲", "甲收单户", "2026-11-01"),

@@ -4,13 +4,7 @@ from typing import Any
 
 from app.db import 连接
 from app.services.时间 import 此刻, 标准化营业日
-
-
-def _前日(营业日: str) -> str:
-    y, m, d = map(int, 营业日.split("-"))
-    from datetime import date, timedelta
-
-    return (date(y, m, d) - timedelta(days=1)).isoformat()
+from app.services import 负余额闸
 
 
 def 回放核对(营业日: str, 批次编号: str = "") -> dict[str, Any]:
@@ -46,19 +40,9 @@ def 回放核对(营业日: str, 批次编号: str = "") -> dict[str, Any]:
                 )
                 差额数 += 1
                 continue
-            前 = _前日(日)
-            前日快照 = conn.execute(
-                "SELECT 余额 FROM 周期快照 WHERE 账户键=? AND 营业日=? AND 状态='有效'",
-                (账户键, 前),
-            ).fetchone()
-            开端 = 0 if 前日快照 is None else int(前日快照["余额"])
-            净额 = int(
-                conn.execute(
-                    "SELECT COALESCE(SUM(变动额),0) AS s FROM 变动流水 "
-                    "WHERE 账户键=? AND 营业日=? AND 命运='已入账'",
-                    (账户键, 日),
-                ).fetchone()["s"]
-            )
+            # 与装载/抽取同源：有效开端 + 正式净额（冻结轨不计入回放净额）。
+            开端 = 负余额闸.有效开端(conn, 账户键, 日)
+            净额 = 负余额闸.正式净额(conn, 账户键, 日)
             回放余额 = 开端 + 净额
             快照余额 = int(快照["余额"])
             差额 = 快照余额 - 回放余额

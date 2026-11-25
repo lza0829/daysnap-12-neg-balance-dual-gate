@@ -36,4 +36,9 @@ export const api = {
   抽取: (营业日) => 请求("/抽取", { method: "POST", body: JSON.stringify({ 营业日 }) }),
   回放: (营业日) => 请求("/回放", { method: "POST", body: JSON.stringify({ 营业日 }) }),
   重置: () => 请求("/重置业务库", { method: "POST", body: "{}" }),
+  闸核证: (q = "") => 请求(`/负余额闸/核证${q}`),
+  闸冻结: (q = "") => 请求(`/负余额闸/冻结${q}`),
+  闸决策: (q = "") => 请求(`/负余额闸/决策${q}`),
+  闸解冻: (流水号) => 请求("/负余额闸/解冻", { method: "POST", body: JSON.stringify({ 流水号 }) }),
+  闸开关: (启用) => 请求("/负余额闸/开关", { method: "POST", body: JSON.stringify({ 启用 }) }),
 };

@@ -30,7 +30,7 @@ export default function 变动流水() {
           onClick={() =>
             api
               .装载夹具(选)
-              .then((r) => set讯(`装载完成 入账=${r.入账} 旁置=${r.旁置}`))
+              .then((r) => set讯(`装载完成 入账=${r.入账} 旁置=${r.旁置} 冻结=${r.冻结 ?? 0}`))
               .then(刷新)
               .catch((e) => set讯(String(e.message || e)))
           }
